@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Win32;
 using Mono.Cecil;
 using TaiwuConfigExtractor;
+using System.Runtime.InteropServices;
 
 // ── 解析参数 ──
 // 默认行为：不带任何参数 = 提取全部表（批量模式）。
@@ -23,7 +24,7 @@ for (int i = 0; i < args.Length; i++)
 
 // ── 定位游戏目录 ──
 gameDir ??= LocateGameDir() ?? throw new InvalidOperationException(
-    "找不到游戏目录。请用 -g 指定，例如：dotnet run -- -g \"D:\\...\\The Scroll Of Taiwu\"");
+    "找不到游戏目录。请用 -g 指定，例如：dotnet run -- -g \"D:\\\\...\\\The Scroll Of Taiwu\"");
 Console.WriteLine($"游戏目录: {gameDir}");
 
 var backendDir = Path.Combine(gameDir, "Backend");
@@ -147,13 +148,13 @@ void RunAllTables(AssemblyDefinition asm, string streamingAssets, string outDir,
     if (failures.Count > 0)
     {
         Console.WriteLine();
-        Console.WriteLine($"失败明细（{failures.Count}）:");
+        Console.WriteLine($"失败明细（{failures.Count}）：");
         foreach (var (n, r) in failures) Console.WriteLine($"  {n}: {Truncate(r, 100)}");
     }
     if (warnings.Count > 0)
     {
         Console.WriteLine();
-        Console.WriteLine($"警告明细（前 20 / {warnings.Count}）:");
+        Console.WriteLine($"警告明细（前 20 / {warnings.Count}）：");
         foreach (var w in warnings.Take(20)) Console.WriteLine("  " + w);
     }
 
@@ -325,8 +326,46 @@ static string? LocateGameDir()
 {
     try
     {
-        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 838350");
-        return key?.GetValue("InstallLocation") as string;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 838350");
+            return key?.GetValue("InstallLocation") as string;
+        }
+        else
+        {
+            // macOS / Linux: 常见 Steam 游戏安装路径
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            var candidates = new[]
+            {
+                Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "The Scroll Of Taiwu"),
+                Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "太吾绘卷"),
+                Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "太吾绘卷：天幕心帷"),
+            };
+            foreach (var c in candidates)
+                if (Directory.Exists(c)) return Path.GetFullPath(c);
+
+            // 如果存在 appmanifest，尝试读出 installdir 字段
+            var steamapps = Path.Combine(home, "Library", "Application Support", "Steam", "steamapps");
+            var manifest = Path.Combine(steamapps, "appmanifest_838350.acf");
+            if (File.Exists(manifest))
+            {
+                foreach (var line in File.ReadAllLines(manifest))
+                {
+                    if (line.Trim().StartsWith("\"installdir\""))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(line, "\"(.*)\"");
+                        if (m.Success)
+                        {
+                            var dir = m.Groups[1].Value;
+                            var candidate = Path.Combine(steamapps, "common", dir);
+                            if (Directory.Exists(candidate)) return Path.GetFullPath(candidate);
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
     }
     catch { return null; }
 }
