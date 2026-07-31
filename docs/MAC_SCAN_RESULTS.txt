@@ -1,0 +1,71 @@
+macOS porting quick scan results
+branch: support/macos
+generated: 2026-07-31
+scanner: Copilot (partial, see notes)
+
+NOTE: I could not execute the repository shell script on the remote GitHub host from this environment. I added the scanning script at scripts/quick_scan.sh in the support/macos branch and then produced this results file based on (a) files I could read via the GitHub API and (b) the repository structure. To get a complete, authoritative scan, run the provided script locally (instructions at the end of this file).
+
+Summary of findings (high-priority items)
+----------------------------------------
+1) Windows registry usage (must-fix for macOS auto-detection)
+   - File: skills/taiwu-mod-dev/scripts/config-extractor/Program.cs
+     - Uses: Microsoft.Win32.Registry and Registry.LocalMachine.OpenSubKey to locate Steam install path (line ~328 in main branch version).
+     - Action taken: replaced LocateGameDir with cross-platform implementation on support/macos (checks RuntimeInformation.IsOSPlatform and tries macOS Steam paths and appmanifest parsing).
+   - README/SKILL.md references registry-based detection (documentation needs update).
+
+2) Hard-coded Windows DLL references / filename patterns
+   - The tool references GameData.Shared.dll and other game DLLs in the config-extractor (these are game binaries to be read, not native interop libraries). Example:
+     - skills/taiwu-mod-dev/scripts/config-extractor/Program.cs: references GameData.Shared.dll, Backend/GameData.Shared.dll
+   - Note: referencing .dll files for reading (Mono.Cecil) is fine on macOS as long as dotnet/il tools are used. Problems occur only if code P/Invokes into Windows-only native DLLs.
+
+3) No obvious DllImport or System.Windows.Forms/System.Drawing usages found in the files I inspected
+   - Files inspected in detail: Program.cs, IlValueExtractor.cs, FieldMapper.cs, LocalizationResolver.cs, config-extractor.csproj, README.md, SKILL.md (not fully searched content but large file listed)
+   - I did not find [DllImport("*.dll")] nor System.Windows.Forms nor System.Drawing in the key files I fetched. That reduces the immediate risk of Windows-only native interop in the config-extractor tool.
+
+4) Path handling
+   - Code generally uses Path.Combine and Path.GetDirectoryName (good). README examples and docs contain Windows-style paths and references (update docs).
+
+Lower-priority / to-be-confirmed items
+--------------------------------------
+- SKILL.md is large and likely contains Windows-specific instructions; it should be reviewed and updated to mention macOS detection and -g usage.
+- Other parts of the repository (outside the config-extractor subfolder) may contain Windows-specific logic (e.g., other scripts, tools, or sample projects). I added a scan script to help find these but could not run it here programmatically.
+
+Files I read (representative)
+-----------------------------
+- README.md (root) — contains explicit mention of "从注册表定位游戏安装目录" and Windows-centric examples.
+- skills/taiwu-mod-dev/scripts/config-extractor/Program.cs — main tool that used Registry (updated in support/macos).
+- skills/taiwu-mod-dev/scripts/config-extractor/IlValueExtractor.cs
+- skills/taiwu-mod-dev/scripts/config-extractor/FieldMapper.cs
+- skills/taiwu-mod-dev/scripts/config-extractor/LocalizationResolver.cs
+- skills/taiwu-mod-dev/scripts/config-extractor/config-extractor.csproj
+- skills/taiwu-mod-dev/scripts/config-extractor/README.md
+- skills/taiwu-mod-dev/SKILL.md (listed; not fully searched in this run)
+
+What I committed already on support/macos
+----------------------------------------
+- Modified: skills/taiwu-mod-dev/scripts/config-extractor/Program.cs — cross-platform LocateGameDir
+- Added: docs/MAC_PORTING_REPORT.md — initial porting report
+- Added: scripts/quick_scan.sh — quick scan helper script
+
+Recommended next steps (you can ask me to run these)
+----------------------------------------------------
+1) Run the scan script locally to produce a full hits list (recommended):
+   - git fetch origin
+   - git checkout support/macos
+   - chmod +x scripts/quick_scan.sh
+   - ./scripts/quick_scan.sh > docs/MAC_SCAN_RESULTS.txt
+   - git add docs/MAC_SCAN_RESULTS.txt && git commit -m "Add macOS scan results" && git push origin support/macos
+
+2) If you prefer I run and commit the scan results here, grant me permission and I will attempt to run the scan using the repository content available via the API. (Note: I already attempted programmatic searches earlier and some search endpoints returned errors; local execution is the most reliable.)
+
+3) After obtaining a full scan, proceed to:
+   - Abstract platform-specific APIs into a PlatformHelper
+   - Replace registry uses and document macOS instructions
+   - Add macOS CI (GitHub Actions) to build/test core tools
+
+If you'd like, I can now (choose one):
+A) Attempt a programmatic scan using the GitHub API (may miss binary/large files) and commit docs/MAC_SCAN_RESULTS.txt (I will do my best); or
+B) Wait for you to run the provided scripts locally and paste the results here; or
+C) Start making targeted fixes based on the known issues (e.g., update README/SKILL.md, add PlatformHelper, add CI).
+
+Your choice: A / B / C
